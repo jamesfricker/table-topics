@@ -1,6 +1,6 @@
-# table-topics
+# Table Topics
 
-> A tool for practicing Table Topics
+> A tool for practicing Toastmasters *Table Topics*
 
 ## Getting started
 
