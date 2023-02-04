@@ -1,38 +1,74 @@
 {
-  description = "Example JavaScript development environment for Zero to Nix";
+  description = "A Nix-flake-based Node.js development environment";
 
-  # Flake inputs
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs"; # also valid: "nixpkgs"
+    flake-utils.url = "github:numtide/flake-utils";
+    nixpkgs.url = "github:NixOS/nixpkgs";
   };
 
-  # Flake outputs
-  outputs = { self, nixpkgs }:
+  outputs = { self, flake-utils, nixpkgs }:
     let
-      # Systems supported
-      allSystems = [
-        "x86_64-linux" # 64-bit Intel/ARM Linux
-        "aarch64-linux" # 64-bit AMD Linux
-        "x86_64-darwin" # 64-bit Intel/ARM macOS
-        "aarch64-darwin" # 64-bit Apple Silicon
+      overlays = [
+        (self: super: {
+          nodejs = super.nodejs-18_x;
+          pnpm = super.nodePackages.pnpm;
+        })
       ];
+    in flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs { inherit overlays system; };
 
-      # Helper to provide system-specific attributes
-      nameValuePair = name: value: { inherit name value; };
-      genAttrs = names: f: builtins.listToAttrs (map (n: nameValuePair n (f n)) names);
-      forAllSystems = f: genAttrs allSystems (system: f {
-        pkgs = import nixpkgs { inherit system; };
-      });
-    in
-    {
-      # Development environment output
-      devShells = forAllSystems ({ pkgs }: {
-        default = pkgs.mkShell {
-          # The Nix packages provided in the environment
-          packages = with pkgs; [
-            nodejs-18_x # Node.js 18, plus npm, npx, and corepack
-          ];
+        common = with pkgs; [ nodejs pnpm ];
+
+        run = pkg: "${pkgs.${pkg}}/bin/${pkg}";
+
+        scripts = with pkgs; [
+          (writeScriptBin "clean" ''
+            rm -rf dist
+          '')
+
+          (writeScriptBin "setup" ''
+            clean
+            ${run "pnpm"} install
+          '')
+
+          (writeScriptBin "build" ''
+            setup
+            ${run "pnpm"} run build
+          '')
+
+          (writeScriptBin "dev" ''
+            setup
+            ${run "pnpm"} run dev
+          '')
+
+          (writeScriptBin "format" ''
+            setup
+            ${run "pnpm"} run format
+          '')
+
+          (writeScriptBin "check-types" ''
+            ${run "pnpm"} run typecheck
+          '')
+
+          (writeScriptBin "preview" ''
+            build
+            ${run "pnpm"} run preview
+          '')
+        ];
+
+        runLocal = pkgs.writeScriptBin "run-local" ''
+          rm -rf dist
+          ${run "pnpm"} install
+          ${run "pnpm"} run build
+          ${run "pnpm"} run preview
+        '';
+      in {
+        devShells = {
+          # The shell for developing this site
+          default = pkgs.mkShell { buildInputs = common ++ scripts; };
         };
+
+        apps.default = flake-utils.lib.mkApp { drv = runLocal; };
       });
-    };
 }
